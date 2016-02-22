@@ -68,7 +68,6 @@ public final class TwitterHashTagCount {
     SparkConf sparkConf = new SparkConf().setAppName("JavaNetworkWordCount");
     JavaStreamingContext ssc = new JavaStreamingContext(sparkConf, Durations.seconds(1));
     JavaReceiverInputDStream<twitter4j.Status> stream = TwitterUtils.createStream(ssc);
-
     
     FlatMapFunction<twitter4j.Status, String> mapFunc = new FlatMapFunction<twitter4j.Status, String>(){
       @Override
@@ -80,34 +79,6 @@ public final class TwitterHashTagCount {
           hashTag.add(m.group(1));
         }
         return hashTag;
-      }
-    };
-    
-    PairFunction<String, String, Integer> pairFunc = new PairFunction<String, String, Integer>(){
-      @Override
-      public Tuple2<String, Integer> call(String s) {
-        return new Tuple2<String, Integer>(s, 1);
-      }
-    };
-
-    Function2<Integer, Integer, Integer> reduceFunc = new Function2<Integer, Integer, Integer>() {
-      @Override
-      public Integer call(Integer i1, Integer i2) {
-        return i2+i2;
-      }
-    };
-
-    PairFunction<Tuple2<String, Integer>, Integer, String> swapFunc = new PairFunction<Tuple2<String, Integer>, Integer, String>() {
-      @Override
-      public Tuple2<Integer, String> call(Tuple2<String, Integer> item) {
-        return item.swap();
-      }
-    };
-    
-    Function<JavaPairRDD<Integer, String>, JavaPairRDD<Integer, String>> sortFunc = new Function<JavaPairRDD<Integer, String>, JavaPairRDD<Integer, String>>() {
-      @Override
-      public JavaPairRDD<Integer, String> call(JavaPairRDD<Integer, String> rdd) {
-        return rdd.sortByKey(false);
       }
     };
     
@@ -127,9 +98,13 @@ public final class TwitterHashTagCount {
       }
     };
     
-    stream.flatMap(mapFunc).mapToPair(pairFunc)
-        .reduceByKeyAndWindow(reduceFunc, Durations.seconds(window), Durations.seconds(slide))
-        .mapToPair(swapFunc).transformToPair(sortFunc).foreachRDD(outFunc);
+    stream.flatMap(mapFunc)
+        .mapToPair((String s) -> {return new Tuple2<String, Integer>(s, 1);})
+        .reduceByKeyAndWindow((Integer i1, Integer i2) -> {return i1+i2;}, 
+            Durations.seconds(window), Durations.seconds(slide))
+        .mapToPair((Tuple2<String, Integer> item) -> {return item.swap();})
+        .transformToPair((JavaPairRDD<Integer, String> rdd) -> {return rdd.sortByKey(false);})
+        .foreachRDD(outFunc);
 
     ssc.start();
     ssc.awaitTermination();
